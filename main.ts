@@ -1,153 +1,48 @@
-// Tiny stack VM, ISA v1 — faithful reimplementation of the kit reference vm.mjs.
-// Plain JavaScript, Node builtins only. Reads /input/<id>/{program,input}.bin,
-// writes /output/<id>/{stdout.bin,exit.txt}.
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-const enc = new TextEncoder();
-// Per-opcode table: [immediate bytes, pops, pushes]. Absent opcode = trap 5.
-const TABLE = [];
-for (const [op, imm, pops, pushes] of [
-  [0x00, 0, 0, 0], [0x01, 1, 0, 1], [0x02, 4, 0, 1], [0x03, 0, 1, 0],
-  [0x04, 0, 1, 2], [0x05, 0, 2, 2], [0x06, 0, 2, 3], [0x07, 0, 3, 3],
-  [0x10, 0, 2, 1], [0x11, 0, 2, 1], [0x12, 0, 2, 1], [0x13, 0, 2, 1],
-  [0x14, 0, 2, 1], [0x15, 0, 2, 1], [0x16, 0, 2, 1], [0x17, 0, 1, 1],
-  [0x18, 0, 2, 1], [0x19, 0, 2, 1], [0x1a, 0, 2, 1], [0x1b, 0, 1, 1],
-  [0x1c, 0, 2, 1], [0x1d, 0, 2, 1], [0x1e, 0, 2, 1], [0x20, 0, 2, 1],
-  [0x21, 0, 2, 1], [0x22, 0, 2, 1], [0x30, 2, 0, 0], [0x31, 2, 1, 0],
-  [0x32, 2, 1, 0], [0x33, 2, 0, 0], [0x34, 0, 0, 0], [0x40, 0, 1, 1],
-  [0x41, 0, 2, 0], [0x50, 0, 1, 0], [0x51, 0, 1, 0], [0x52, 0, 0, 1],
-  [0x53, 0, 1, 0],
-]) TABLE[op] = [imm, pops, pushes];
-
-function run(prog, input) {
-  const n = prog.length;
-  const d = new Int32Array(256);
-  const c = new Int32Array(64);
-  const m = new Int32Array(256);
-  const out = new Uint8Array(65536);
-  let sp = 0, cp = 0, ol = 0, ip = 0, pc = 0, steps = 0;
-  const done = (code) => [out.slice(0, ol), code];
-  for (;;) {
-    // vm.mjs check order: step limit, pc bounds, bad opcode, immediate cut
-    // off; then the step counts and stack needs are checked.
-    if (steps === 1000000) return done(10);
-    if (pc < 0 || pc >= n) return done(9);
-    const op = prog[pc];
-    const t = TABLE[op];
-    if (t === undefined) return done(5);
-    const imm = t[0], pops = t[1], pushes = t[2];
-    if (pc + imm >= n) return done(9);
-    steps++;
-    const nx = pc + 1 + imm;
-    if (sp < pops) return done(2);
-    if (sp - pops + pushes > 256) return done(3);
-    pc = nx;
-    switch (op) {
-      case 0x00: return done(0);
-      case 0x01: d[sp++] = (prog[nx - 1] << 24) >> 24; break;
-      case 0x02: d[sp++] = prog[nx - 4] | (prog[nx - 3] << 8) | (prog[nx - 2] << 16) | (prog[nx - 1] << 24); break;
-      case 0x03: sp--; break;
-      case 0x04: d[sp] = d[sp - 1]; sp++; break;
-      case 0x05: { const x = d[sp - 1]; d[sp - 1] = d[sp - 2]; d[sp - 2] = x; break; }
-      case 0x06: d[sp] = d[sp - 2]; sp++; break;
-      case 0x07: { const x = d[sp - 3]; d[sp - 3] = d[sp - 2]; d[sp - 2] = d[sp - 1]; d[sp - 1] = x; break; }
-      case 0x17: d[sp - 1] = -d[sp - 1] | 0; break;
-      case 0x1b: d[sp - 1] = ~d[sp - 1]; break;
-      case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15:
-      case 0x16: case 0x18: case 0x19: case 0x1a: case 0x1c: case 0x1d:
-      case 0x1e: case 0x20: case 0x21: case 0x22: {
-        const b = d[sp - 1], a = d[sp - 2];
-        let r;
-        switch (op) {
-          case 0x10: r = (a + b) | 0; break;
-          case 0x11: r = (a - b) | 0; break;
-          case 0x12: r = Math.imul(a, b); break;
-          case 0x13:
-            if (b === 0) return done(4);
-            r = a === -2147483648 && b === -1 ? a : (a / b) | 0;
-            break;
-          case 0x14:
-            if (b === 0) return done(4);
-            r = b === -1 ? 0 : (a % b) | 0;
-            break;
-          case 0x15:
-            if (b === 0) return done(4);
-            r = Math.floor((a >>> 0) / (b >>> 0)) | 0;
-            break;
-          case 0x16:
-            if (b === 0) return done(4);
-            r = ((a >>> 0) % (b >>> 0)) | 0;
-            break;
-          case 0x18: r = a & b; break;
-          case 0x19: r = a | b; break;
-          case 0x1a: r = a ^ b; break;
-          case 0x1c: r = a << (b & 31); break;
-          case 0x1d: r = a >> (b & 31); break;
-          case 0x1e: r = (a >>> (b & 31)) | 0; break;
-          case 0x20: r = a === b ? 1 : 0; break;
-          case 0x21: r = a < b ? 1 : 0; break;
-          case 0x22: r = (a >>> 0) < (b >>> 0) ? 1 : 0; break;
-        }
-        sp -= 2;
-        d[sp++] = r;
-        break;
-      }
-      case 0x30: case 0x31: case 0x32: {
-        const rel = ((prog[nx - 2] | (prog[nx - 1] << 8)) << 16) >> 16;
-        let take = true;
-        if (op !== 0x30) {
-          const v = d[--sp];
-          take = op === 0x31 ? v === 0 : v !== 0;
-        }
-        if (take) pc = nx + rel;
-        break;
-      }
-      case 0x33:
-        if (cp === 64) return done(7);
-        c[cp++] = nx;
-        pc = prog[nx - 2] | (prog[nx - 1] << 8);
-        break;
-      case 0x34:
-        if (cp === 0) return done(8);
-        pc = c[--cp];
-        break;
-      case 0x40: {
-        const addr = d[sp - 1];
-        if (addr < 0 || addr > 255) return done(6);
-        d[sp - 1] = m[addr];
-        break;
-      }
-      case 0x41: {
-        const addr = d[sp - 1];
-        if (addr < 0 || addr > 255) return done(6);
-        m[addr] = d[sp - 2];
-        sp -= 2;
-        break;
-      }
-      case 0x50: {
-        const s = enc.encode(String(d[sp - 1]));
-        if (ol + s.length > 65536) return done(11);
-        sp--;
-        out.set(s, ol);
-        ol += s.length;
-        break;
-      }
-      case 0x51:
-        if (ol + 1 > 65536) return done(11);
-        out[ol++] = d[--sp] & 255;
-        break;
-      case 0x52: d[sp++] = ip < input.length ? input[ip++] : -1; break;
-      case 0x53: return done(d[--sp] & 255);
-    }
-  }
+import{readdirSync as R,readFileSync as F,mkdirSync as K,writeFileSync as W}from'node:fs';
+const S="0AC4TXhl........HHHHHHHDHHHDHHH.HHH.............26620...........D8..............44@4",L=[0,1,2,4],
+A=[,,,,,,,,,,,,,,,,(a,b)=>a+b,(a,b)=>a-b,Math.imul,(a,b)=>a/b,(a,b)=>a%b,(a,b)=>(a>>>0)/(b>>>0),(a,b)=>(a>>>0)%(b>>>0),,(a,b)=>a&b,(a,b)=>a|b,(a,b)=>a^b,,(a,b)=>a<<(b&31),(a,b)=>a>>(b&31),(a,b)=>a>>>(b&31),,(a,b)=>+(a===b),(a,b)=>+(a<b),(a,b)=>+((a>>>0)<(b>>>0))];
+function run(p,q){
+const n=p.length,D=new Int32Array(256),C=new Int32Array(64),M=new Int32Array(256);
+let s=0,c=0,o='',i=0,pc=0,st=0;
+const E=x=>[Buffer.from(o,'latin1'),x];
+for(;;){
+if(st===1e6)return E(10);
+if(pc<0||pc>=n)return E(9);
+const op=p[pc],t=S.charCodeAt(op)-48;
+if(!(t>=0&&t<64))return E(5);
+const im=L[t&3],po=t>>2&3,pu=t>>4;
+if(pc+im>=n)return E(9);
+st++;
+let nx=pc+1+im;
+if(s<po)return E(2);
+if(s-po+pu>256)return E(3);
+switch(op){
+case 0:return E(0);
+case 1:D[s++]=(p[pc+1]<<24)>>24;break;
+case 2:D[s++]=p[pc+1]|p[pc+2]<<8|p[pc+3]<<16|p[pc+4]<<24;break;
+case 3:s--;break;
+case 4:case 6:D[s]=D[s-1-(op==6)];s++;break;
+case 5:{const t=D[s-1];D[s-1]=D[s-2];D[s-2]=t;break;}
+case 7:{const t=D[s-3];D[s-3]=D[s-2];D[s-2]=D[s-1];D[s-1]=t;break;}
+case 23:D[s-1]=-D[s-1];break;
+case 27:D[s-1]=~D[s-1];break;
+case 48:case 49:case 50:{const r=(p[pc+1]|p[pc+2]<<8)<<16>>16;if(op==48||!!D[--s]==(op==50))nx+=r;break;}
+case 51:if(c==64)return E(7);C[c++]=nx;nx=p[pc+1]|p[pc+2]<<8;break;
+case 52:if(!c)return E(8);nx=C[--c];break;
+case 64:case 65:{const a=D[s-1];if(a>>>0>255)return E(6);if(op==64)D[s-1]=M[a];else{M[a]=D[s-2];s-=2;}break;}
+case 80:{const t=''+D[s-1];if(o.length+t.length>65536)return E(11);o+=t;s--;break;}
+case 81:if(o.length==65536)return E(11);o+=String.fromCharCode(D[--s]&255);break;
+case 82:D[s++]=i<q.length?q[i++]:-1;break;
+case 83:return E(D[--s]&255);
+default:{const b=D[s-1];if(op>18&&op<23&&!b)return E(4);const r=A[op](D[s-2],b);s-=2;D[s++]=r;}
 }
-
-const I = process.env.MAKEFUN_INPUT_DIR ?? '/input';
-const O = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-for (const id of readdirSync(I).sort()) {
-  const [o, code] = run(readFileSync(join(I, id, 'program.bin')), readFileSync(join(I, id, 'input.bin')));
-  mkdirSync(join(O, id), { recursive: true });
-  writeFileSync(join(O, id, 'stdout.bin'), o);
-  writeFileSync(join(O, id, 'exit.txt'), code + '\n');
+pc=nx;
+}
+}
+const{MAKEFUN_INPUT_DIR:I='/input',MAKEFUN_OUTPUT_DIR:O='/output'}=process.env;
+for(const id of R(I)){
+const[o,c]=run(F(`${I}/${id}/program.bin`),F(`${I}/${id}/input.bin`));
+K(`${O}/${id}`,{recursive:!0});
+W(`${O}/${id}/stdout.bin`,o);
+W(`${O}/${id}/exit.txt`,c+'\n');
 }
