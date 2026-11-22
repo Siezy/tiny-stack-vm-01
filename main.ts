@@ -1,6 +1,6 @@
 import{readdirSync as R,readFileSync as F,mkdirSync as K,writeFileSync as W}from'node:fs';
-const S="0AC4TXhl........HHHHHHHDHHHDHHH.HHH.............26620...........D8..............44@4",L=[0,1,2,4],
-A=[,,,,,,,,,,,,,,,,(a,b)=>a+b,(a,b)=>a-b,Math.imul,(a,b)=>a/b,(a,b)=>a%b,(a,b)=>(a>>>0)/(b>>>0),(a,b)=>(a>>>0)%(b>>>0),,(a,b)=>a&b,(a,b)=>a|b,(a,b)=>a^b,,(a,b)=>a<<(b&31),(a,b)=>a>>(b&31),(a,b)=>a>>>(b&31),,(a,b)=>+(a===b),(a,b)=>+(a<b),(a,b)=>+((a>>>0)<(b>>>0))];
+const T="0Aa46:;?........999999959995999.999.............PTTP0...........58..............4414",G=[0,1,2,4],
+B=[(a,b)=>a+b,(a,b)=>a-b,Math.imul,(a,b)=>a/b,(a,b)=>a%b,(a,b)=>(a>>>0)/(b>>>0),(a,b)=>(a>>>0)%(b>>>0),,(a,b)=>a&b,(a,b)=>a|b,(a,b)=>a^b,,(a,b)=>a<<(b&31),(a,b)=>a>>(b&31),(a,b)=>a>>>(b&31),,(a,b)=>+(a===b),(a,b)=>+(a<b),(a,b)=>+((a>>>0)<(b>>>0))];
 function run(p,q){
 const n=p.length,D=new Int32Array(256),C=new Int32Array(64),M=new Int32Array(256);
 let s=0,c=0,o='',i=0,pc=0,st=0;
@@ -8,9 +8,9 @@ const E=x=>[Buffer.from(o,'latin1'),x];
 for(;;){
 if(st===1e6)return E(10);
 if(pc<0||pc>=n)return E(9);
-const op=p[pc],t=S.charCodeAt(op)-48;
-if(!(t>=0&&t<64))return E(5);
-const im=L[t&3],po=t>>2&3,pu=t>>4;
+const op=p[pc],v=T.charCodeAt(op)-48;
+if(!(v>=0&&v<64))return E(5);
+const im=G[v>>4],po=v>>2&3,pu=v&3;
 if(pc+im>=n)return E(9);
 st++;
 let nx=pc+1+im;
@@ -34,7 +34,7 @@ case 80:{const t=''+D[s-1];if(o.length+t.length>65536)return E(11);o+=t;s--;brea
 case 81:if(o.length==65536)return E(11);o+=String.fromCharCode(D[--s]&255);break;
 case 82:D[s++]=i<q.length?q[i++]:-1;break;
 case 83:return E(D[--s]&255);
-default:{const b=D[s-1];if(op>18&&op<23&&!b)return E(4);const r=A[op](D[s-2],b);s-=2;D[s++]=r;}
+default:{const b=D[s-1];if(op>18&&op<23&&!b)return E(4);D[s-=2]=B[op-16](D[s],b);s++;}
 }
 pc=nx;
 }
