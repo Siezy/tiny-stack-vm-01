@@ -1,11 +1,10 @@
-// Tiny stack VM, ISA v1 — a line-for-line-faithful reimplementation of the
-// kit reference vm.mjs. Plain JavaScript, Node builtins only.
-// Reads /input/<id>/{program,input}.bin, writes /output/<id>/{stdout.bin,exit.txt}.
+// Tiny stack VM, ISA v1 — faithful reimplementation of the kit reference vm.mjs.
+// Plain JavaScript, Node builtins only. Reads /input/<id>/{program,input}.bin,
+// writes /output/<id>/{stdout.bin,exit.txt}.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const enc = new TextEncoder();
-
 // Per-opcode table: [immediate bytes, pops, pushes]. Absent opcode = trap 5.
 const TABLE = [];
 for (const [op, imm, pops, pushes] of [
@@ -23,15 +22,15 @@ for (const [op, imm, pops, pushes] of [
 
 function run(prog, input) {
   const n = prog.length;
-  const d = new Int32Array(256); // data stack
-  const c = new Int32Array(64); // call stack
-  const m = new Int32Array(256); // memory, zero-initialised
+  const d = new Int32Array(256);
+  const c = new Int32Array(64);
+  const m = new Int32Array(256);
   const out = new Uint8Array(65536);
   let sp = 0, cp = 0, ol = 0, ip = 0, pc = 0, steps = 0;
   const done = (code) => [out.slice(0, ol), code];
   for (;;) {
-    // Per-step checks, in vm.mjs order: step limit, pc bounds, bad opcode,
-    // immediate cut off; then the step counts and stack needs are checked.
+    // vm.mjs check order: step limit, pc bounds, bad opcode, immediate cut
+    // off; then the step counts and stack needs are checked.
     if (steps === 1000000) return done(10);
     if (pc < 0 || pc >= n) return done(9);
     const op = prog[pc];
@@ -40,36 +39,21 @@ function run(prog, input) {
     const imm = t[0], pops = t[1], pushes = t[2];
     if (pc + imm >= n) return done(9);
     steps++;
-    const nx = pc + 1 + imm; // address of the next instruction
+    const nx = pc + 1 + imm;
     if (sp < pops) return done(2);
     if (sp - pops + pushes > 256) return done(3);
     pc = nx;
     switch (op) {
-      case 0x00: return done(0); // HALT
-      case 0x01: // PUSH8, sign-extended
-        d[sp++] = (prog[nx - 1] << 24) >> 24;
-        break;
-      case 0x02: // PUSH32, little-endian
-        d[sp++] = prog[nx - 4] | (prog[nx - 3] << 8) | (prog[nx - 2] << 16) | (prog[nx - 1] << 24);
-        break;
-      case 0x03: sp--; break; // POP
-      case 0x04: d[sp] = d[sp - 1]; sp++; break; // DUP
-      case 0x05: { // SWAP
-        const x = d[sp - 1];
-        d[sp - 1] = d[sp - 2];
-        d[sp - 2] = x;
-        break;
-      }
-      case 0x06: d[sp] = d[sp - 2]; sp++; break; // OVER
-      case 0x07: { // ROT
-        const x = d[sp - 3];
-        d[sp - 3] = d[sp - 2];
-        d[sp - 2] = d[sp - 1];
-        d[sp - 1] = x;
-        break;
-      }
-      case 0x17: d[sp - 1] = -d[sp - 1] | 0; break; // NEG, wraps
-      case 0x1b: d[sp - 1] = ~d[sp - 1]; break; // NOT
+      case 0x00: return done(0);
+      case 0x01: d[sp++] = (prog[nx - 1] << 24) >> 24; break;
+      case 0x02: d[sp++] = prog[nx - 4] | (prog[nx - 3] << 8) | (prog[nx - 2] << 16) | (prog[nx - 1] << 24); break;
+      case 0x03: sp--; break;
+      case 0x04: d[sp] = d[sp - 1]; sp++; break;
+      case 0x05: { const x = d[sp - 1]; d[sp - 1] = d[sp - 2]; d[sp - 2] = x; break; }
+      case 0x06: d[sp] = d[sp - 2]; sp++; break;
+      case 0x07: { const x = d[sp - 3]; d[sp - 3] = d[sp - 2]; d[sp - 2] = d[sp - 1]; d[sp - 1] = x; break; }
+      case 0x17: d[sp - 1] = -d[sp - 1] | 0; break;
+      case 0x1b: d[sp - 1] = ~d[sp - 1]; break;
       case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15:
       case 0x16: case 0x18: case 0x19: case 0x1a: case 0x1c: case 0x1d:
       case 0x1e: case 0x20: case 0x21: case 0x22: {
@@ -78,7 +62,7 @@ function run(prog, input) {
         switch (op) {
           case 0x10: r = (a + b) | 0; break;
           case 0x11: r = (a - b) | 0; break;
-          case 0x12: r = Math.imul(a, b); break; // exact low 32 bits
+          case 0x12: r = Math.imul(a, b); break;
           case 0x13:
             if (b === 0) return done(4);
             r = a === -2147483648 && b === -1 ? a : (a / b) | 0;
@@ -99,8 +83,8 @@ function run(prog, input) {
           case 0x19: r = a | b; break;
           case 0x1a: r = a ^ b; break;
           case 0x1c: r = a << (b & 31); break;
-          case 0x1d: r = a >> (b & 31); break; // arithmetic
-          case 0x1e: r = (a >>> (b & 31)) | 0; break; // logical
+          case 0x1d: r = a >> (b & 31); break;
+          case 0x1e: r = (a >>> (b & 31)) | 0; break;
           case 0x20: r = a === b ? 1 : 0; break;
           case 0x21: r = a < b ? 1 : 0; break;
           case 0x22: r = (a >>> 0) < (b >>> 0) ? 1 : 0; break;
@@ -109,7 +93,7 @@ function run(prog, input) {
         d[sp++] = r;
         break;
       }
-      case 0x30: case 0x31: case 0x32: { // JMP / JZ / JNZ
+      case 0x30: case 0x31: case 0x32: {
         const rel = ((prog[nx - 2] | (prog[nx - 1] << 8)) << 16) >> 16;
         let take = true;
         if (op !== 0x30) {
@@ -119,29 +103,29 @@ function run(prog, input) {
         if (take) pc = nx + rel;
         break;
       }
-      case 0x33: // CALL: unsigned absolute target
+      case 0x33:
         if (cp === 64) return done(7);
         c[cp++] = nx;
         pc = prog[nx - 2] | (prog[nx - 1] << 8);
         break;
-      case 0x34: // RET
+      case 0x34:
         if (cp === 0) return done(8);
         pc = c[--cp];
         break;
-      case 0x40: { // LOAD
+      case 0x40: {
         const addr = d[sp - 1];
         if (addr < 0 || addr > 255) return done(6);
         d[sp - 1] = m[addr];
         break;
       }
-      case 0x41: { // STORE: value below address on the stack
+      case 0x41: {
         const addr = d[sp - 1];
         if (addr < 0 || addr > 255) return done(6);
         m[addr] = d[sp - 2];
         sp -= 2;
         break;
       }
-      case 0x50: { // PRINT: decimal ASCII, nothing written on trap 11
+      case 0x50: {
         const s = enc.encode(String(d[sp - 1]));
         if (ol + s.length > 65536) return done(11);
         sp--;
@@ -149,14 +133,12 @@ function run(prog, input) {
         ol += s.length;
         break;
       }
-      case 0x51: // PUTC: one byte
+      case 0x51:
         if (ol + 1 > 65536) return done(11);
         out[ol++] = d[--sp] & 255;
         break;
-      case 0x52: // IN: -1 at EOF, forever
-        d[sp++] = ip < input.length ? input[ip++] : -1;
-        break;
-      case 0x53: return done(d[--sp] & 255); // EXIT
+      case 0x52: d[sp++] = ip < input.length ? input[ip++] : -1; break;
+      case 0x53: return done(d[--sp] & 255);
     }
   }
 }
